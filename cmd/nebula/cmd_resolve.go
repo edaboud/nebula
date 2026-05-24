@@ -107,56 +107,82 @@ func ResolveAction(c *cli.Context) error {
 
 	tele.HealthStatus.Store(true)
 
-	// Start the main loop
+	// Start the main loop.
+	//
+	// Each batch runs inside a single transaction so the FOR UPDATE SKIP LOCKED
+	// in FetchUnresolvedMultiAddresses keeps its row-level locks for the whole
+	// batch -- this is what makes multiple resolver workers safe to run in
+	// parallel without claiming the same rows. Per-row savepoints isolate any
+	// row-level errors so one bad row doesn't roll back the whole batch.
 	for {
 		log.Infoln("Fetching multi addresses...")
-		dbmaddrs, err := dbc.FetchUnresolvedMultiAddresses(c.Context, resolveConfig.BatchSize)
+
+		txn, err := dbh.BeginTx(c.Context, nil)
+		if err != nil {
+			return fmt.Errorf("begin batch txn: %w", err)
+		}
+
+		dbmaddrs, err := dbc.FetchUnresolvedMultiAddresses(c.Context, txn, resolveConfig.BatchSize)
 		if errors.Is(err, context.Canceled) {
+			db.Rollback(txn)
 			return nil
 		} else if err != nil {
+			db.Rollback(txn)
 			return fmt.Errorf("fetching multi addresses: %w", err)
 		}
 		log.Infof("Fetched %d multi addresses", len(dbmaddrs))
 		if len(dbmaddrs) == 0 {
+			db.Rollback(txn)
 			return nil
 		}
 
-		if err = resolve(c.Context, dbh, mmc, uclient, dbmaddrs); err != nil && !errors.Is(err, context.Canceled) {
+		if err = resolve(c.Context, txn, mmc, uclient, dbmaddrs); err != nil && !errors.Is(err, context.Canceled) {
 			log.WithError(err).Warnln("Error resolving multi addresses")
+		}
+
+		if err := txn.Commit(); err != nil {
+			log.WithError(err).Warnln("Error committing resolve batch -- rows will be retried")
 		}
 	}
 }
 
-// resolve saves the resolved IP addresses + their countries in a transaction
-func resolve(ctx context.Context, dbh *sql.DB, mmc *maxmind.Client, uclient *udger.Client, dbmaddrs pgmodels.MultiAddressSlice) error {
+// resolve saves the resolved IP addresses + their countries. The batch runs in a
+// single transaction passed in by the caller; per-row savepoints make a single
+// failing row recoverable without rolling back the whole batch.
+func resolve(ctx context.Context, txn *sql.Tx, mmc *maxmind.Client, uclient *udger.Client, dbmaddrs pgmodels.MultiAddressSlice) error {
 	log.WithField("size", len(dbmaddrs)).Infoln("Resolving batch of multi addresses...")
 
-	for _, dbmaddr := range dbmaddrs {
-		if err := resolveAddr(ctx, dbh, mmc, uclient, dbmaddr); err != nil {
+	for i, dbmaddr := range dbmaddrs {
+		sp := fmt.Sprintf("sp_%d", i)
+		if _, err := txn.ExecContext(ctx, "SAVEPOINT "+sp); err != nil {
+			return fmt.Errorf("savepoint %s: %w", sp, err)
+		}
+		if err := resolveAddr(ctx, txn, mmc, uclient, dbmaddr); err != nil {
 			log.WithField("maddr", dbmaddr.Maddr).WithError(err).Warnln("Error resolving multi address")
+			if _, rbErr := txn.ExecContext(ctx, "ROLLBACK TO SAVEPOINT "+sp); rbErr != nil {
+				return fmt.Errorf("rollback to savepoint %s: %w", sp, rbErr)
+			}
+		} else {
+			if _, relErr := txn.ExecContext(ctx, "RELEASE SAVEPOINT "+sp); relErr != nil {
+				return fmt.Errorf("release savepoint %s: %w", sp, relErr)
+			}
 		}
 	}
 
 	return nil
 }
 
-func resolveAddr(ctx context.Context, dbh *sql.DB, mmc *maxmind.Client, uclient *udger.Client, dbmaddr *pgmodels.MultiAddress) error {
+func resolveAddr(ctx context.Context, txn *sql.Tx, mmc *maxmind.Client, uclient *udger.Client, dbmaddr *pgmodels.MultiAddress) error {
 	logEntry := log.WithField("maddr", dbmaddr.Maddr)
-	txn, err := dbh.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin txn: %w", err)
-	}
-	defer db.Rollback(txn)
 
 	maddr, err := ma.NewMultiaddr(dbmaddr.Maddr)
 	if err != nil {
 		logEntry.WithError(err).Warnln("Error parsing multi address - deleting row")
-		if _, delErr := dbmaddr.Delete(ctx, txn); err != nil {
+		if _, delErr := dbmaddr.Delete(ctx, txn); delErr != nil {
 			logEntry.WithError(delErr).Warnln("Error deleting multi address")
-			return fmt.Errorf("parse multi address: %w", err)
-		} else {
-			return txn.Commit()
+			return fmt.Errorf("delete bad multi address: %w", delErr)
 		}
+		return nil
 	}
 
 	dbmaddr.Resolved = true
@@ -230,7 +256,7 @@ func resolveAddr(ctx context.Context, dbh *sql.DB, mmc *maxmind.Client, uclient 
 		return fmt.Errorf("update multi address: %w", err)
 	}
 
-	return txn.Commit()
+	return nil
 }
 
 func isRelayedMaddr(maddr ma.Multiaddr) bool {

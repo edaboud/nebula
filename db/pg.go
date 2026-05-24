@@ -925,13 +925,19 @@ func (c *PostgresClient) SelectPeersToProbe(ctx context.Context) ([]peer.AddrInf
 	return addrInfos, nil
 }
 
-// FetchUnresolvedMultiAddresses fetches all multi addresses that were not resolved yet.
-func (c *PostgresClient) FetchUnresolvedMultiAddresses(ctx context.Context, limit int) (pgmodels.MultiAddressSlice, error) {
+// FetchUnresolvedMultiAddresses fetches multi addresses that were not yet resolved.
+// The query attaches FOR UPDATE SKIP LOCKED so multiple resolver workers can run
+// concurrently against the same table without claiming the same rows. The caller
+// must pass a *sql.Tx (or other executor that participates in a transaction) and
+// keep that transaction open for the lifetime of the batch -- the row-level locks
+// are released on COMMIT/ROLLBACK of the surrounding transaction.
+func (c *PostgresClient) FetchUnresolvedMultiAddresses(ctx context.Context, exec boil.ContextExecutor, limit int) (pgmodels.MultiAddressSlice, error) {
 	return pgmodels.MultiAddresses(
 		pgmodels.MultiAddressWhere.Resolved.EQ(false),
 		qm.OrderBy(pgmodels.MultiAddressColumns.CreatedAt),
 		qm.Limit(limit),
-	).All(ctx, c.dbh)
+		qm.For("UPDATE SKIP LOCKED"),
+	).All(ctx, exec)
 }
 
 // Flush .
