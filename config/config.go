@@ -301,6 +301,7 @@ func (cfg *Database) PostgresClientConfig() *db.PostgresClientConfig {
 		ProtocolsCacheSize:     cfg.ProtocolsCacheSize,
 		ProtocolsSetCacheSize:  cfg.ProtocolsSetCacheSize,
 		MaxIdleConns:           cfg.MaxIdleConns,
+		NetworkID:              cfg.NetworkID,
 		PersistNeighbors:       cfg.PersistNeighbors,
 		MeterProvider:          cfg.MeterProvider,
 		TracerProvider:         cfg.TracerProvider,

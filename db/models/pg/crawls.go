@@ -44,6 +44,7 @@ type Crawl struct { // An internal unique id that identifies a crawl.
 	// The number of remaining peers in the crawl queue if the process was cancelled.
 	RemainingPeers null.Int `boil:"remaining_peers" json:"remaining_peers,omitempty" toml:"remaining_peers" yaml:"remaining_peers,omitempty"`
 	Version        string   `boil:"version" json:"version" toml:"version" yaml:"version"`
+	NetworkID      string   `boil:"network_id" json:"network_id" toml:"network_id" yaml:"network_id"`
 
 	R *crawlR `boil:"-" json:"-" toml:"-" yaml:"-"`
 	L crawlL  `boil:"-" json:"-" toml:"-" yaml:"-"`
@@ -61,6 +62,7 @@ var CrawlColumns = struct {
 	UndialablePeers string
 	RemainingPeers  string
 	Version         string
+	NetworkID       string
 }{
 	ID:              "id",
 	State:           "state",
@@ -73,6 +75,7 @@ var CrawlColumns = struct {
 	UndialablePeers: "undialable_peers",
 	RemainingPeers:  "remaining_peers",
 	Version:         "version",
+	NetworkID:       "network_id",
 }
 
 var CrawlTableColumns = struct {
@@ -87,6 +90,7 @@ var CrawlTableColumns = struct {
 	UndialablePeers string
 	RemainingPeers  string
 	Version         string
+	NetworkID       string
 }{
 	ID:              "crawls.id",
 	State:           "crawls.state",
@@ -99,6 +103,7 @@ var CrawlTableColumns = struct {
 	UndialablePeers: "crawls.undialable_peers",
 	RemainingPeers:  "crawls.remaining_peers",
 	Version:         "crawls.version",
+	NetworkID:       "crawls.network_id",
 }
 
 // Generated where
@@ -139,6 +144,7 @@ var CrawlWhere = struct {
 	UndialablePeers whereHelpernull_Int
 	RemainingPeers  whereHelpernull_Int
 	Version         whereHelperstring
+	NetworkID       whereHelperstring
 }{
 	ID:              whereHelperint{field: "\"crawls\".\"id\""},
 	State:           whereHelperstring{field: "\"crawls\".\"state\""},
@@ -151,6 +157,7 @@ var CrawlWhere = struct {
 	UndialablePeers: whereHelpernull_Int{field: "\"crawls\".\"undialable_peers\""},
 	RemainingPeers:  whereHelpernull_Int{field: "\"crawls\".\"remaining_peers\""},
 	Version:         whereHelperstring{field: "\"crawls\".\"version\""},
+	NetworkID:       whereHelperstring{field: "\"crawls\".\"network_id\""},
 }
 
 // CrawlRels is where relationship names are stored.
@@ -181,8 +188,8 @@ func (r *crawlR) GetCrawlProperties() CrawlPropertySlice {
 type crawlL struct{}
 
 var (
-	crawlAllColumns            = []string{"id", "state", "started_at", "finished_at", "updated_at", "created_at", "crawled_peers", "dialable_peers", "undialable_peers", "remaining_peers", "version"}
-	crawlColumnsWithoutDefault = []string{"state", "started_at", "updated_at", "created_at", "version"}
+	crawlAllColumns            = []string{"id", "state", "started_at", "finished_at", "updated_at", "created_at", "crawled_peers", "dialable_peers", "undialable_peers", "remaining_peers", "version", "network_id"}
+	crawlColumnsWithoutDefault = []string{"state", "started_at", "updated_at", "created_at", "version", "network_id"}
 	crawlColumnsWithDefault    = []string{"id", "finished_at", "crawled_peers", "dialable_peers", "undialable_peers", "remaining_peers"}
 	crawlPrimaryKeyColumns     = []string{"id"}
 	crawlGeneratedColumns      = []string{"id"}

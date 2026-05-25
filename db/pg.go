@@ -84,6 +84,9 @@ type PostgresClientConfig struct {
 	// Set the maximum idle connections for the database handler.
 	MaxIdleConns int
 
+	// The network identifier that we are collecting data for.
+	NetworkID string
+
 	// Whether to persist the routing tables to disk
 	PersistNeighbors bool
 
@@ -347,6 +350,7 @@ func (c *PostgresClient) InitCrawl(ctx context.Context, version string) (err err
 		State:     pgmodels.CrawlStateStarted,
 		StartedAt: time.Now(),
 		Version:   version,
+		NetworkID: c.cfg.NetworkID,
 	}
 
 	if err := c.crawl.Insert(ctx, c.dbh, boil.Infer()); err != nil {
